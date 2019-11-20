@@ -14,6 +14,7 @@ func main() {
 }
 
 func BotConnect() {
+	var pwd = "/"
 	slackToken := os.Getenv("SLACK_TOKEN")
 	if slackToken == "" {
 		println("SLACK_TOKEN cannot be empty.")
@@ -44,14 +45,17 @@ func BotConnect() {
 						x := commandParts[1]
 						y := commandParts[2:]
 						cmd := exec.Command(x, y...)
+						cmd.Dir = pwd
 						if x == "cd" {
-							cmd.Dir = commandParts[2]
-						}
-						out, err := cmd.CombinedOutput()
-						if err != nil {
-							println(err.Error())
+							pwd = commandParts[2]
+							rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "`STATUS: OK (0)`"})
 						} else {
-							rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "```" + string(out) + "```"})
+							out, err := cmd.CombinedOutput()
+							if err != nil {
+								println(err.Error())
+							} else {
+								rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "```" + string(out) + "```"})
+							}
 						}
 					}
 				}
