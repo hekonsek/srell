@@ -3,27 +3,46 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/hekonsek/osexit"
 	"github.com/nlopes/slack"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 )
 
 func main() {
-	BotConnect()
+	NewSrell().Connect()
 }
 
-func BotConnect() {
-	var pwd = "/"
+type Srell struct {
+	pwd string
+}
+
+func NewSrell() *Srell {
+	return &Srell{pwd:"/"}
+}
+
+func (srell *Srell) Connect() {
 	slackToken := os.Getenv("SLACK_TOKEN")
 	if slackToken == "" {
-		println("SLACK_TOKEN cannot be empty.")
-		os.Exit(1)
+		osexit.ExitBecauseError("SLACK_TOKEN cannot be empty.")
 	}
 
 	api := slack.New(slackToken, slack.OptionDebug(true))
 	rtm := api.NewRTM()
 	go rtm.ManageConnection()
+
+	r := gin.Default()
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status": "OK",
+		})
+	})
+	go func() {
+		osexit.ExitOnError(r.Run())
+	}()
 
 	for msg := range rtm.IncomingEvents {
 		switch msg.Data.(type) {
@@ -45,16 +64,27 @@ func BotConnect() {
 						x := commandParts[1]
 						y := commandParts[2:]
 						cmd := exec.Command(x, y...)
-						cmd.Dir = pwd
+						cmd.Dir = srell.pwd
 						if x == "cd" {
-							pwd = commandParts[2]
-							rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "`STATUS: OK (0)`"})
+							srell.pwd = commandParts[2]
+							status := fmt.Sprintf("`STATUS: OK (%d)`", osexit.UnixExitCodeOK)
+							rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: status})
 						} else {
 							out, err := cmd.CombinedOutput()
 							if err != nil {
 								println(err.Error())
+								status := ""
+								if exiterr, ok := err.(*exec.ExitError); ok {
+									if s, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+										status = fmt.Sprintf("`STATUS: (%d)`", s.ExitStatus())
+									}
+								} else {
+									status = fmt.Sprintf("`STATUS: Error executing command (%s)`", err.Error())
+								}
+								rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "```" + string(out) + "```\n" + status})
 							} else {
-								rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "```" + string(out) + "```"})
+								status := fmt.Sprintf("`STATUS: OK (%d)`", osexit.UnixExitCodeOK)
+								rtm.SendMessage(&slack.OutgoingMessage{Type: "message", Channel: m["channel"].(string), Text: "```" + string(out) + "```\n" + status})
 							}
 						}
 					}

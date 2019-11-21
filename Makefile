@@ -7,7 +7,7 @@ all: format build
 build:
 	GO111MODULE=on go build srell.go
 
-docker-build:
+docker-build: build
 	docker build . -t hekonsek/srell:$(VERSION)
 
 docker-push: docker-build
